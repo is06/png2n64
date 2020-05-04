@@ -50,6 +50,7 @@ int main(int argc, char* argv[])
 
     if (color_type != PNG_COLOR_TYPE_RGB_ALPHA) {
         printf("PNG format not supported for conversion.\n");
+        return 1;
     }
 
     // Allocate a RGBA32 binary image
