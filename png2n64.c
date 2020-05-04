@@ -52,7 +52,7 @@ int main(int argc, char* argv[])
         printf("PNG format not supported for conversion.\n");
     }
 
-    // Create a RGBA32 binary image
+    // Allocate a RGBA32 binary image
     bin_image_t* binary_image = (bin_image_t*)malloc(sizeof(bin_image_t));
 
     // Read PNG format
@@ -107,13 +107,16 @@ int main(int argc, char* argv[])
     // Writing binary image file
     FILE* bin_file = fopen("result.bin", "wb");
 
-    int binary_image_size = binary_image->width * binary_image->height * output_pixel_size;
+    int binary_image_size = binary_image->width * binary_image->height;
 
-    printf("Binary image size: %i\n", binary_image_size);
+    printf("Binary image size: %i\n", binary_image_size * output_pixel_size);
 
     fwrite(binary_image->pixels, output_pixel_size, binary_image_size, bin_file);
     
     fclose(bin_file);
+
+    free(binary_image->pixels);
+    free(binary_image);
 
     return 0;
 }
@@ -121,8 +124,8 @@ int main(int argc, char* argv[])
 int check_arguments(int argc)
 {
     if (argc < 2 || argc > 3) {
-        printf("Usage: png2n64 file [--format=format]\n");
-        printf("--format    can be: rgba32 or rgba16\n");
+        printf("Usage: png2n64 file [format]\n");
+        printf("format: can be 'rgba32' or 'rgba16'\n");
         return 1;
     }
 
