@@ -48,15 +48,15 @@ int main(int argc, char* argv[])
     int bit_depth = png_get_bit_depth(png_ptr, info_ptr);
     int color_type = png_get_color_type(png_ptr, info_ptr);
 
-    if (color_type != PNG_COLOR_TYPE_RGB_ALPHA) {
+    if (bit_depth != 8) {
         printf("PNG format not supported for conversion.\n");
         return 1;
     }
 
-    // Allocate a RGBA32 binary image
+    // Allocate the binary image (RGBA32 or GA16)
     bin_image_t* binary_image = (bin_image_t*)malloc(sizeof(bin_image_t));
 
-    // Read PNG format
+    // Read PNG width and height
     png_get_IHDR(
         png_ptr,
         info_ptr,
@@ -69,20 +69,43 @@ int main(int argc, char* argv[])
         NULL
     );
 
-    // Allocate pixels in rgba32 binary image
-    binary_image->pixels = (unsigned char*)malloc(sizeof(unsigned char) * binary_image->width * binary_image->height * RGBA32_PIXEL_SIZE);
-
-    // Format from parameter
-    binary_image->format = BINARY_IMAGE_FORMAT_RGBA32;
+    // Format from parameter (default: rgba16)
+    binary_image->output_format = BINARY_IMAGE_FORMAT_RGBA16;
     if (argc == 3) {
-        binary_image->format = get_format_from_parameter(argv[2]);
+        binary_image->output_format = get_format_from_parameter(argv[2]);
     }
 
-    // Row pointers for png read
+    int binary_pixel_size = RGBA32_PIXEL_SIZE;
+
+    switch (color_type) {
+        case PNG_COLOR_TYPE_RGB_ALPHA:
+            if (binary_image->output_format != BINARY_IMAGE_FORMAT_RGBA32
+            && binary_image->output_format != BINARY_IMAGE_FORMAT_RGBA16) {
+                printf("Input PNG format is RGBA, please provide rgba32 or rgba16 output format.\n");
+                return 1;
+            }
+            break;
+        case PNG_COLOR_TYPE_GRAY_ALPHA:
+            if (binary_image->output_format != BINARY_IMAGE_FORMAT_IA16
+            && binary_image->output_format != BINARY_IMAGE_FORMAT_IA8) {
+                printf("Input PNG format is IA, please provide ia16 or ia8 output format.\n");
+                return 1;
+            }
+            binary_pixel_size = IA16_PIXEL_SIZE;
+            break;
+        default:
+            printf("PNG format not supported for conversion.\n");
+            return 1;
+    }
+
+    // Allocate bytes in source binary image
+    binary_image->bytes = (unsigned char*)malloc(sizeof(unsigned char) * binary_image->width * binary_image->height * binary_pixel_size);
+
+    // Row pointers for PNG read
     png_bytep* row_pointers;
     row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * binary_image->height);
     for (int i = 0; i < binary_image->height; ++i) {
-        row_pointers[i] = (png_bytep)(binary_image->pixels + (i * binary_image->width * RGBA32_PIXEL_SIZE));
+        row_pointers[i] = (png_bytep)(binary_image->bytes + (i * binary_image->width * binary_pixel_size));
     }
     png_read_image(png_ptr, row_pointers);
     free(row_pointers);
@@ -92,35 +115,55 @@ int main(int argc, char* argv[])
     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
     fclose(png_file);
 
-    int output_pixel_size = 4;
+    int output_pixel_size = BINARY_IMAGE_FORMAT_RGBA16;
+    convert_image(binary_image, &output_pixel_size);
 
+    write_file(*binary_image, output_pixel_size);
+
+    // Free memory of binary image
+    free(binary_image->bytes);
+    free(binary_image);
+
+    return 0;
+}
+
+void convert_image(bin_image_t* image, int* output_pixel_size)
+{
     // Convert the binary image before writing to file
-    switch (binary_image->format) {
+    switch (image->output_format) {
+        case BINARY_IMAGE_FORMAT_RGBA32:
+            printf("Converting using RGBA32 format...\n");
+            *output_pixel_size = RGBA32_PIXEL_SIZE;
+            break;
         case BINARY_IMAGE_FORMAT_RGBA16:
             printf("Converting using RGBA16 format...\n");
-            convert_image_to_rgba16(binary_image);
-            output_pixel_size = 2;
+            convert_image_to_rgba16(image);
+            *output_pixel_size = RGBA16_PIXEL_SIZE;
             break;
-        default:
-            printf("Converting using RGBA32 format...\n");
+        case BINARY_IMAGE_FORMAT_IA16:
+            *output_pixel_size = IA16_PIXEL_SIZE;
+            printf("Converting using IA16 format...\n");
+            break;
+        case BINARY_IMAGE_FORMAT_IA8:
+            printf("Converting using IA8 format...\n");
+            convert_image_to_ia8(image);
+            *output_pixel_size = IA8_PIXEL_SIZE;
+            break;
     }
+}
 
-    // Writing binary image file
+void write_file(bin_image_t image, int output_pixel_size)
+{
     FILE* bin_file = fopen("result.bin", "wb");
 
-    int binary_image_size = binary_image->width * binary_image->height;
+    const int binary_image_size = image.width * image.height;
 
     printf("Done.\n");
     printf("Output binary image size: %i\n", binary_image_size * output_pixel_size);
 
-    fwrite(binary_image->pixels, output_pixel_size, binary_image_size, bin_file);
+    fwrite(image.bytes, output_pixel_size, binary_image_size, bin_file);
     
     fclose(bin_file);
-
-    free(binary_image->pixels);
-    free(binary_image);
-
-    return 0;
 }
 
 int check_arguments(int argc)
@@ -136,19 +179,65 @@ int check_arguments(int argc)
 
 int get_format_from_parameter(char* parameter)
 {
+    if (strcmp(parameter, "--format=rgba32") == 0) {
+        return BINARY_IMAGE_FORMAT_RGBA32;
+    }
     if (strcmp(parameter, "--format=rgba16") == 0) {
         return BINARY_IMAGE_FORMAT_RGBA16;
     }
+    if (strcmp(parameter, "--format=ia16") == 0) {
+        return BINARY_IMAGE_FORMAT_IA16;
+    }
+    if (strcmp(parameter, "--format=ia8") == 0) {
+        return BINARY_IMAGE_FORMAT_IA8;
+    }
 
-    return 0;
+    return -1;
 }
 
-unsigned short get_rgba16_color_from_rgba32(unsigned int color32b)
+unsigned char get_ia8_color_from_ia16(unsigned short ia16)
 {
-    unsigned char red = (color32b & 0xff000000) >> 24;
-    unsigned char green = (color32b & 0xff0000) >> 16;
-    unsigned char blue = (color32b & 0xff00) >> 8;
-    unsigned char alpha = color32b & 0xff;
+    unsigned short intensity = (ia16 & 0xff00) >> 8;
+    unsigned short alpha = ia16 & 0xff;
+
+    intensity = intensity / 16;
+    alpha = alpha / 16;
+
+    return (intensity << 4) | alpha;
+}
+
+void convert_image_to_ia8(bin_image_t* image)
+{
+    int source_image_length = image->width * image->height * IA16_PIXEL_SIZE;
+    int destination_image_length = image->width * image->height * IA8_PIXEL_SIZE;
+
+    unsigned char* source_bytes = image->bytes;
+    unsigned char* destination_bytes = (unsigned char*)malloc(sizeof(unsigned char) * destination_image_length);
+
+    int offset = 0;
+    for (int i = 0; i < source_image_length; i += IA16_PIXEL_SIZE) {
+        unsigned char intensity = image->bytes[i];
+        unsigned char alpha = image->bytes[i+1];
+
+        unsigned short ia16_color = intensity << 8 | alpha;
+        unsigned char ia8_color = get_ia8_color_from_ia16(ia16_color);
+
+        destination_bytes[offset] = (ia8_color & 0xf0) >> 4;
+        destination_bytes[offset+1] = ia8_color & 0xf;
+
+        offset += IA8_PIXEL_SIZE;
+    }
+
+    image->bytes = destination_bytes;
+    free(source_bytes);
+}
+
+unsigned short get_rgba16_color_from_rgba32(unsigned int rgba32)
+{
+    unsigned char red = (rgba32 & 0xff000000) >> 24;
+    unsigned char green = (rgba32 & 0xff0000) >> 16;
+    unsigned char blue = (rgba32 & 0xff00) >> 8;
+    unsigned char alpha = rgba32 & 0xff;
 
     red = red / 8;
     green = green / 8;
@@ -160,28 +249,28 @@ unsigned short get_rgba16_color_from_rgba32(unsigned int color32b)
 
 void convert_image_to_rgba16(bin_image_t* image)
 {
-    int rgba32_image_length = image->width * image->height * 4;
-    int rgba16_image_length = image->width * image->height * 2;
+    int source_image_length = image->width * image->height * RGBA32_PIXEL_SIZE;
+    int destination_image_length = image->width * image->height * RGBA16_PIXEL_SIZE;
 
-    unsigned char* rgba16_pixels = (unsigned char*)malloc(sizeof(unsigned char) * rgba16_image_length);
-    unsigned char* rgba32_pixels = image->pixels;
+    unsigned char* source_bytes = image->bytes;
+    unsigned char* destination_bytes = (unsigned char*)malloc(sizeof(unsigned char) * destination_image_length);
 
-    int j = 0;
-    for (int i = 0; i < rgba32_image_length; i += 4) {
-        unsigned char red = image->pixels[i];
-        unsigned char green = image->pixels[i+1];
-        unsigned char blue = image->pixels[i+2];
-        unsigned char alpha = image->pixels[i+3];
+    int offset = 0;
+    for (int i = 0; i < source_image_length; i += RGBA32_PIXEL_SIZE) {
+        unsigned char red = image->bytes[i];
+        unsigned char green = image->bytes[i+1];
+        unsigned char blue = image->bytes[i+2];
+        unsigned char alpha = image->bytes[i+3];
 
         unsigned int rgba32_color = red << 24 | green << 16 | blue << 8 | alpha;
         unsigned short rgba16_color = get_rgba16_color_from_rgba32(rgba32_color);
 
-        rgba16_pixels[j] = (rgba16_color & 0xff00) >> 8;
-        rgba16_pixels[j+1] = rgba16_color & 0xff;
+        destination_bytes[offset] = (rgba16_color & 0xff00) >> 8;
+        destination_bytes[offset+1] = rgba16_color & 0xff;
 
-        j += 2;
+        offset += RGBA16_PIXEL_SIZE;
     }
 
-    image->pixels = rgba16_pixels;
-    free(rgba32_pixels);
+    image->bytes = destination_bytes;
+    free(source_bytes);
 }
