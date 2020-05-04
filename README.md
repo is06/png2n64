@@ -23,7 +23,6 @@ This will produce a result.bin file.
 For the future
 --------------
 
-- Handle output RGBA16 format
 - Handle output IA16 format
 - Handle output IA8 format
 - Handle output IA4 format
