@@ -96,12 +96,12 @@ int main(int argc, char* argv[])
     // Convert the binary image before writing to file
     switch (binary_image->format) {
         case BINARY_IMAGE_FORMAT_RGBA16:
-            printf("Convert to rgba16...\n");
+            printf("Converting using RGBA16 format...\n");
             convert_image_to_rgba16(binary_image);
             output_pixel_size = 2;
             break;
         default:
-            printf("No need for conversion, keep rgba32\n");
+            printf("Converting using RGBA32 format...\n");
     }
 
     // Writing binary image file
@@ -109,7 +109,8 @@ int main(int argc, char* argv[])
 
     int binary_image_size = binary_image->width * binary_image->height;
 
-    printf("Binary image size: %i\n", binary_image_size * output_pixel_size);
+    printf("Done.\n");
+    printf("Output binary image size: %i\n", binary_image_size * output_pixel_size);
 
     fwrite(binary_image->pixels, output_pixel_size, binary_image_size, bin_file);
     
@@ -134,7 +135,7 @@ int check_arguments(int argc)
 
 int get_format_from_parameter(char* parameter)
 {
-    if (strcmp(parameter, "rgba16")) {
+    if (strcmp(parameter, "--format=rgba16") == 0) {
         return BINARY_IMAGE_FORMAT_RGBA16;
     }
 
